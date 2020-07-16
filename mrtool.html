@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MR Scene Rotation Calculator</title>
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.0/css/bootstrap.min.css" integrity="sha384-9aIt2nRpC12Uk9gS9baDl411NQApFmC26EwAOH8WgZl5MYYxFfc+NcPb1dKGj7Sk" crossorigin="anonymous">
+    <style>
+        body {
+            font-size: small;
+        }
+        #shotTable {
+            text-align: center;
+            font-size: small;
+        }
+
+        .table th, .table td {
+            padding: 0.2rem;
+        }
+
+        .btn-sm {
+            font-size: smaller;
+            margin-left: 5px;
+        }
+
+        .colorScript {
+            display: flex;
+            flex-wrap: nowrap;
+        }
+
+        .colorBox {
+            font-size: smaller;
+            display: inline-block;
+            flex-grow: 1;
+            padding-top: 2em;
+            padding-bottom: 2em;
+            text-align: center;
+            vertical-align: middle;
+            overflow: hidden;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>MR Scene Rotation Calculator</h1>
+        <label for="seqStart">Sequence Start Frame:</label>
+        <input type="number" id="seqStart" name="seqStart" value=1><br>
+
+        <label for="totalFrames">Sequence Total Frames:</label>
+        <input type="number" id="totalFrames" name="totalFrames" value=7200><br>
+
+        <p class="text-muted"><em>Sequence Frame Range: <span id="frameRangeInfo"></span></em></p>
+        
+        <label for="startAngle">Start Angle:</label>
+        <input type="number" id="startAngle" name="startAngle" value=0><br>
+
+        <label for="numRotations">Total Rotations:</label>
+        <input type="number" id="numRotations" name="numRotations" value=1><br>
+
+        <p class="text-muted"><em>Sequence Angle Range: <span id="angleRangeInfo"></span></em></p>
+
+        <h4>Color Script</h4>
+        <div class="colorScript">
+        </div> 
+        <br><br>
+
+        <h4>Shots</h4>
+        <table id="shotTable" class="table">
+            <thead>
+                <tr>
+                    <th scope="col">#</th>
+                    <th scope="col">Controls</th>
+                    <th scope="col">Shot Name</th>
+                    <th scope="col">Color</th>
+                    <th scope="col">Start Frame</th>
+                    <th scope="col">End Frame</th>
+                    <th scope="col">Frame Length</th>
+                    <th scope="col">Start Angle</th>
+                    <th scope="col">End Angle</th>
+                    <th scope="col">Angle Span</th>
+                </tr>
+            </thead>
+            <tbody>
+            </tbody>
+        </table>
+        <p class="text-muted"><em>Total Shots: <span id="totalShotsInfo"></span></em></p>
+        <button type="button" class="btn btn-dark" id="addShotButton">Add Shot</button>
+        <br><br>
+        <hr>
+        <div>
+            <h5>Load / Save</h5>
+            <button type="button" class="btn btn-primary" id="saveButton">Save Data To File</button><br><br>
+            <input type="file" id="input-file"><br>
+            <button type="button" class="btn btn-warning" id="loadButton">Load Data From File</button>
+        </div>
+        <br>
+        <br>
+    </div>
+
+    <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js" integrity="sha384-DfXdz2htPH0lsSSs5nCTpuj/zy4C+OGpamoFVy38MVBnE+IbbVYUew+OrCXaRkfj" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/popper.js@1.16.0/dist/umd/popper.min.js" integrity="sha384-Q6E9RHvbIyZFJoft+2mJbHaEWldlvI9IOYy5n3zV9zzTtmI3UksdQRVvoxMfooAo" crossorigin="anonymous"></script>
+    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.0/js/bootstrap.min.js" integrity="sha384-OgVRvuATP1z7JjHLkuOU7Xw704+h835Lr+6QL9UvYjZE3Ipu6Tp75j7Bh/kR0JKI" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/chroma-js/2.1.0/chroma.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.2/dist/FileSaver.min.js"></script>
+    <script>
+        var allShots = [];
+        var sequence = {};
+        var fileData;
+
+        function saveFile(){
+            recalcGlobals();
+            recalcShots();
+            var data = {};
+            data.sequence = sequence;
+            data.shots = allShots;
+            var blob = new Blob([JSON.stringify(data)], {type: "text/plain;charset=utf-8"});
+            saveAs(blob, 'mrtoolshotdata.json');
+        }
+
+        function loadFile(){
+            console.log("load file");
+            const input = document.getElementById('input-file');
+            if('files' in input && input.files.length > 0){
+                handleLoadedData(input.files[0]);
+            }            
+        }
+
+        function handleLoadedData(file){
+            readFileContent(file).then(content => {
+                let data = JSON.parse(content);
+                console.log(data);
+                if('sequence' in data && 'shots' in data){
+                    sequence = data.sequence;
+                    allShots = data.shots;
+
+                    document.getElementById("totalFrames").value = sequence.totalFrames;
+                    document.getElementById("seqStart").value = sequence.startFrame;
+                    document.getElementById("numRotations").value = sequence.numRotations;
+                    document.getElementById("startAngle").value = sequence.startAngle;
+
+                    recalcGlobals();
+                    recalcShots();
+                    updateUI();
+                }
+            }).catch(error => console.log(error));
+        }
+
+        function readFileContent(file) {
+            const reader = new FileReader();
+            return new Promise((resolve, reject) => {
+                reader.onload = event => resolve(event.target.result);
+                reader.onerror = error => reject(error);
+                reader.readAsText(file);
+            })
+        }
+
+
+        function recalcGlobals(){
+            sequence.totalFrames = parseInt(document.getElementById("totalFrames").value);
+            sequence.startFrame = parseInt(document.getElementById("seqStart").value);
+            sequence.endFrame = sequence.startFrame + sequence.totalFrames - 1;
+
+            sequence.numRotations = parseFloat(document.getElementById("numRotations").value);
+            sequence.startAngle = parseFloat(document.getElementById("startAngle").value);
+            sequence.endAngle = sequence.startAngle + (sequence.numRotations * 360.0);
+        }
+
+        function recalcShots(){
+            sequence.numShots = allShots.length;
+            sequence.shotLength = Math.floor(sequence.totalFrames / sequence.numShots);
+            sequence.actualEndFrame = sequence.shotLength * sequence.numShots;
+            sequence.shotAngleSpan = (sequence.endAngle - sequence.startAngle) / sequence.numShots;
+
+            allShots.forEach(function(shot, index) {
+                allShots[index].startFrame = Math.floor(index * sequence.shotLength) + sequence.startFrame;
+                allShots[index].endFrame = allShots[index].startFrame + (sequence.shotLength - 1);
+                allShots[index].startAngle = sequence.startAngle + (sequence.shotAngleSpan * index);
+                allShots[index].endAngle = sequence.startAngle + (sequence.shotAngleSpan * (index + 1));
+            });
+        }
+
+        function updateLabels(){
+            recalcGlobals();
+            recalcShots();
+            /* Frame Range */
+            var frameRangeInfo = document.getElementById("frameRangeInfo");
+            frameRangeInfo.innerText = "" + sequence.startFrame + "-" + sequence.endFrame;
+
+            /* Rotation Range */
+            var angleRangeInfo = document.getElementById("angleRangeInfo");
+            angleRangeInfo.innerText = sequence.startAngle + "-" + sequence.endAngle + "°";
+
+            /* Shots */
+            var totalShotsInfo = document.getElementById("totalShotsInfo");
+            totalShotsInfo.innerText = allShots.length;
+        }
+
+        function shotExists(sname){
+            for (let index = 0; index < allShots.length; index++) {
+                if(allShots[index].name == sname) { return 1; }
+                
+            }
+            return 0;
+        }
+
+        function swapShots(ia, ib){
+            console.log("swapShots(" + ia + ", " + ib + ")");
+            if(ia == ib || ia < 0 || ia >= allShots.length || ib < 0 || ib >= allShots.length) {
+                return;
+            }
+            let tName = allShots[ia].name;
+            let tColor = allShots[ia].color;
+            allShots[ia].name = allShots[ib].name;
+            allShots[ia].color = allShots[ib].color;
+            allShots[ib].name = tName;
+            allShots[ib].color = tColor;
+        }
+
+        function addShot(){
+            console.log("addShot()");
+            var newShot = {};
+            var shotIndex = allShots.length + 1;
+            newShot.name = "Shot" + shotIndex;
+            while (shotExists(newShot.name)) {
+                shotIndex = shotIndex + 1;
+                newShot.name = "Shot" + shotIndex;
+            }
+            newShot.color = chroma.random().hex();
+            allShots.push(newShot);
+            recalcShots();
+            updateUI();
+        }
+
+        function updateColorScript(){
+            colorScript = $("div.colorScript").first();
+            $("div.colorScript div").remove();
+            allShots.forEach(function(shot, index){
+                colorScript.append(
+                    $('<div style="flex-grow: 1" class="colorBox"></div>').text(shot.name).css('background', shot.color)
+                );
+            });
+        }
+
+        function updateColorBox(index){
+            colorScript = $("div.colorScript").first();
+            colorBoxes = $("div.colorScript div.colorBox").eq(index).css('background', allShots[index].color);
+        }
+
+        function editGlobals(){
+            updateLabels();
+            updateShotTable();
+        }
+
+        function updateShotTable(){
+            table = document.getElementById("shotTable");
+            $("#shotTable tr:not(:first)").remove();
+            allShots.forEach(function(shot, index) {
+                addShotToTable(shot, index);
+            });
+        }
+
+        function addShotToTable(shot, index){
+            tableBody = $("#shotTable tbody").first();
+            var newRow = $('<tr></tr>').attr('data-index', index);
+            newRow.append('<th scope="row">' + (index+1) + '</th>');
+            //Button Controls
+            newRow.append(
+                $('<td></td>').attr('data-index', index).append(
+                    $('<button class="btn btn-secondary btn-sm">Move Up</button>').attr('id', 'moveUpButton-' + index).attr('data-index', index).on('click', moveUpShot)
+                ).append(
+                    $('<button class="btn btn-secondary btn-sm">Move Down</button>').attr('id', 'moveDownButton-' + index).attr('data-index', index).on('click', moveDownShot)
+                ).append(
+                    $('<button class="btn btn-danger btn-sm">Delete</button>').attr('id', 'deleteButton-' + index).attr('data-index', index).on('click', deleteShot)
+                )
+            );
+            // Shot Name
+            newRow.append(
+                $('<td></td>').attr('data-index', index).append(
+                    $('<input type=text>').attr('id', 'nameControl-' + index).attr('value', shot.name).attr('data-index', index).on('input', nameEdit).on('click', function(){ this.select(); })
+                )
+            );
+            // Shot Color
+            newRow.append(
+                $('<td></td>').attr('data-index', index).append(
+                    $('<input type=color>').attr('id', 'colorControl-' + index).attr('data-index', index).attr('value', shot.color).on('input', colorEdit)
+                )
+            );
+            //Start Frame
+            newRow.append(
+                $('<td></td>').attr('data-index', index).append(
+                    $('<span></span>').attr('id', 'startFrameLabel-' + index).attr('data-index', index).text(allShots[index].startFrame)
+                )
+            );
+            //End Frame
+            newRow.append(
+                $('<td></td>').attr('data-index', index).append(
+                    $('<span></span>').attr('id', 'endFrameLabel-' + index).attr('data-index', index).text(allShots[index].endFrame)
+                )
+            );
+            //Frame Length Frame
+            newRow.append(
+                $('<td></td>').attr('data-index', index).append(
+                    $('<span></span>').attr('id', 'frameLengthLabel-' + index).attr('data-index', index).text(sequence.shotLength)
+                )
+            );
+            //Start Angle
+            newRow.append(
+                $('<td></td>').attr('data-index', index).append(
+                    $('<span></span>').attr('id', 'startAngleLabel-' + index).attr('data-index', index).text(Number(allShots[index].startAngle).toFixed(2))
+                )
+            );
+            //End Angle
+            newRow.append(
+                $('<td></td>').attr('data-index', index).append(
+                    $('<span></span>').attr('id', 'endAngleLabel-' + index).attr('data-index', index).text(Number(allShots[index].endAngle).toFixed(2))
+                )
+            );
+            //Angle Span
+            newRow.append(
+                $('<td></td>').attr('data-index', index).append(
+                    $('<span></span>').attr('id', 'angleSpanLabel-' + index).attr('data-index', index).text(Number(sequence.shotAngleSpan).toFixed(2))
+                )
+            );
+            
+            tableBody.append(newRow);
+        }
+
+        function colorEdit(evt) {
+            //console.log("colorEdit");
+            let index = evt.target.getAttribute('data-index');
+            let value = evt.target.value;
+            allShots[index].color = value;
+            updateColorScript();
+        }
+
+        function nameEdit(evt) {
+            //console.log("nameEdit");
+            let index = evt.target.getAttribute('data-index');
+            let value = evt.target.value;
+            allShots[index].name = value;
+            updateColorScript();
+        }
+
+        function moveUpShot(evt){
+            console.log("moveUpShot");
+            let index = evt.target.getAttribute('data-index');
+            if(index < 1) { return; }
+            swapShots(index, index-1);
+            updateUI();
+        }
+
+        function moveDownShot(evt){
+            console.log("moveDownShot");
+            let index = parseInt(evt.target.getAttribute('data-index'));
+            console.log(index)
+            if(index > allShots.length-2) { return; }
+            swapShots(index, index+1);
+            updateUI();
+        }
+
+        function deleteShot(evt){
+            console.log("deleteShot");
+            let index = evt.target.getAttribute('data-index');
+            allShots.splice(index, 1);
+            recalcShots();
+            updateUI();
+        }
+
+        function updateUI(){
+            updateShotTable();
+            updateLabels();
+            updateColorScript();
+        }
+
+        var seqStartInput = document.getElementById("seqStart");
+        var totalFramesInput = document.getElementById("totalFrames");
+        var startAngleInput = document.getElementById("startAngle");
+        var numRotationsInput = document.getElementById("numRotations");
+
+        var addShotButton = document.getElementById("addShotButton");
+
+        seqStartInput.addEventListener('input', editGlobals);
+        totalFramesInput.addEventListener('input', editGlobals);
+        startAngleInput.addEventListener('input', editGlobals);
+        numRotationsInput.addEventListener('input', editGlobals);
+
+        addShotButton.addEventListener('click', addShot);
+
+        var saveButton = document.getElementById('saveButton');
+        saveButton.addEventListener('click', saveFile);
+
+        var loadButton = document.getElementById('loadButton');
+        loadButton.addEventListener('click', loadFile);
+
+        addShot();
+        addShot();
+        addShot();
+        addShot();
+        addShot();
+        addShot();
+        addShot();
+        addShot();
+        addShot();
+        addShot();
+
+
+        updateUI();
+
+    </script>
+</body>
+</html>
